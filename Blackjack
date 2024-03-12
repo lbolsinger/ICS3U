@@ -1,0 +1,805 @@
+# Imported functions
+
+from random import randint
+from google.colab import output
+import time
+
+
+# Constants
+
+# These just impact specific rules and starting values in the game
+MIN_BET = 1
+MAX_BET = 15
+STANDARD_BET = 5
+INITIAL_CHIPS = 30
+
+STANDARD_CARDS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+FACE_CARDS = ['J', 'Q', 'K']
+# Make sure hearts and diamonds are printed in red
+SUITS = ['♠', '\33[91m♥\033[30m', '♣', '\33[91m♦\033[30m'] 
+STANDARD_DECK = 52
+NUM_DECKS = 6
+
+
+# Game rules
+
+def display_rules():
+
+  print("""
+  ICS3U1.2 CULMINATING - BLACKJACK
+
+  Computer players (c1 and c2) will count cards and use basic strategy
+  Dealer (d) will follow dealer conventions
+  Player (p) will input their own decisions both on bets and card play
+
+  GOAL:
+  Get a higher hand than the dealer without going over 21
+
+  RULES:
+    1. All players will enter a bet with the following conditions:
+         a. {} ≤ bet ≤ {}
+         b. The player cannot bet more chips than they have
+         c. Bets must be integers
+
+    2. Players win the hand and earn their bet value if:
+         a. Their hand is valued higher than the dealer's without going over 21
+         b. The dealer goes over 21 and the player does not
+         c. The player has a natural 21 (Blackjack) and the dealer does not
+              i. If the dealer reaches 21 eventually but it is not natural, the player still wins
+             ii. The player is paid 1.5 their bet (rounded up) on a natural 21
+
+    3. Players lose the hand and pay their bet value if:
+         a. Their hand goes over 21
+              i. They still lose even if the dealer goes over 21
+         b. The dealer has a higher value than the player
+         c. The dealer has a natural 21 and will reveal their closed card; the round ends immediately.
+
+    4. When playing a hand, players have the following actions:
+         a. Hit (H) - get another card 
+         b. Stand (S) - stay at the current hand value
+         c. Double down (DD) - double the bet, only receive one card
+         d. Split (SP) - split hand into 2 separate hands
+              i. Must only have 2 cards, both with the same value
+             ii. Place a bet of the same value on the second hand
+            iii. Face cards are all worth 10, but only the same face cards can split
+             iv. Players can DD and SP after splitting initially
+        A player's legal action will be printed above the input tab
+
+    5. A dealer has the following actions:
+         a. A dealer must hit on any value lower than 17
+         b. A dealer must hit on a soft 17
+
+  QUIT:
+  The player may choose to end the game before entering their bet for another round.
+  If the playing inputting action or either of the computer players lose all of their chips, the game ends.
+
+  GOOD LUCK! 
+  """.format(MIN_BET, MAX_BET))
+
+  cont = input("\nEnter anything to continue: ")
+
+
+# Set up
+
+def generate_deck() -> [str]: 
+  """Return a list of cards in the full deck using a NUM_DECKS number of 
+  a standard 52 card deck."""
+
+  deck = []
+  for k in range(NUM_DECKS):
+    for i in range(len(SUITS)):
+      for value in STANDARD_CARDS:
+        deck.append(value + " " + SUITS[i])
+  shuffled_deck = []
+  for i in range(len(deck)):
+    x = randint(0, len(deck)-1)
+    shuffled_deck.append(deck[x])
+    deck.pop(x)
+  return shuffled_deck
+
+
+def generate_chips():
+  """Return a dictionary of the initial chip values for all betting players."""
+
+  player_chips = {'c1': INITIAL_CHIPS, 'c2': INITIAL_CHIPS, 'p': INITIAL_CHIPS}
+  return player_chips
+
+
+# Execute actions
+
+def hit(deck: [str], hand: [str]):
+  """Add a card from the deck to the hand, then remove that card from the deck."""
+
+  hand.append(deck[0])
+  deck.pop(0)
+
+
+def deal(deck: [str]) -> dict:
+  """Give each player 2 cards from the deck, and give the dealer a face down card.
+  Return the dictionary of all the players' hands."""
+
+  hands = {'c1': [[]], 'c2': [[]], 'p':[[]], 'd': [[]]}
+  for i in range(2):
+    for k in hands.keys():
+      hands[k][0].append(deck[0])
+      deck.pop(0)
+  hands['d'][0].insert(1, '░░░░')
+  return hands
+
+
+def double_down(deck: [str], hand: [str]):
+  """Add a card and '/' to show that they doubled-down"""
+
+  hand.append('/')
+  hit(deck, hand)
+
+
+def split(hand: [str], index_hand:int):
+  """Split the current hand into 2 separate hands.
+  
+  >>> split([8, 8])
+  [[8], [8]]"""
+
+  hand.append([])
+  hand[-1].append(hand[index_hand][1])
+  hand[index_hand].pop(1)
+
+
+# Evaluate
+
+def base_value(hand: [str]) -> int:
+  """Return the baseline value of the hands, without including soft/hard hands.
+  '/' means that the player doubled-down, but it doesn't impact the hand value.
+  
+  >>> base_value(['A', '5', '3')
+  9
+  >>> base_value(['J', '10'])
+  20"""
+
+  value = 0
+  for i in range(len(hand)):
+    if hand[i][0] == '1' or hand[i][0] in FACE_CARDS:
+      value += 10
+    elif hand[i][0] == '░' or hand[i][0] == '/':
+      value += 0
+    elif hand[i][0] == 'A':
+      value += 1
+    else:
+      value += int(hand[i][0])
+  return value
+
+
+def check_soft(hand: [str]) -> bool:
+  """Return whether ace can be worth 1 or 11, hard or soft hand.
+  
+  >>> check_soft(['A', 'A'])
+  False
+  >>> check_soft(['A', '7'])
+  True
+  >>> check_soft(['A', '7', '8'])
+  False
+  >>> check_soft(['7', '8'])
+  False"""
+
+  # Count number of aces
+  aces = 0
+  for i in range(len(hand)):
+    if hand[i][0] == 'A':
+      aces += 1
+  # If there is one ace, check that it can be valued at 11 without going over 21
+  if aces == 1 and base_value(hand) <= 11:
+    return True
+  else:
+    return False
+
+
+def evaluate_hand(hand: [str]) -> int:
+  """Adjust the base value of the hand if the hand is soft.
+  
+  >>> evaluate_hand(['A', '10'])
+  21
+  >>> evaluate_hand(['A', '8'])
+  19
+  >>> evaluate_hand(['8', '3', '/', '10'])
+  21"""
+
+  value = base_value(hand)
+  if check_soft(hand) is True:
+    value += 10
+  return value
+
+
+def store_hand_values(hands: dict) -> dict:
+  """Return a dictionary with all of the hand values.
+  
+  >>> store_all_values({c1: [A, J], c2: [[10, 9], [A, 8]], p: [10, 10], d: [7, 8, 10]})
+  {c1: [21], c2: [19, 19], p: [20], d: [25]}"""
+
+  all_values = {'c1': [], 'c2': [], 'p': [], 'd': []}
+  for k in hands.keys():
+    # If a player splits, they have distinct hands that may have different values
+    for i in range(len(hands[k])):
+      all_values[k].append(evaluate_hand(hands[k][i]))
+  return all_values
+
+
+# Get and verify actions
+
+def player_action(available_actions: [str]) -> str:
+  """Get input from player to decide what action they will do to their hand.
+  Continuously ask for input until valid."""
+
+  action = ''
+  print()
+  # Continue asking for an action until they provide a valid response
+  while action not in available_actions:
+    for option in available_actions:
+      print(option, end="  ")
+    print()
+    action = input()
+    if action not in available_actions:
+      print("This is not an option. Please enter on of the listed actions.\n")
+  return action
+
+
+def check_split(hand):
+  """Return True if hand has two cards where the numbers are the same, otherwise False.
+  
+  >>> check_split([8, 8])
+  True
+  >>> check_split([8, 7])
+  False
+  >>> check_split(['J', '10'])
+  False
+  >>> check_split([3, 3, 3])
+  False"""
+
+  # Ensure there is no index error if the player just split and only has 1 card
+  if len(hand) > 1:
+    # Check if the values are the same
+    if hand[0][0] == hand[1][0] and len(hand) == 2:
+      return True
+    else:
+      return False
+  else: 
+    return False
+
+
+def get_available_actions(hands: dict, k: str, i: int, player_chips: dict, bets: dict):
+  """Return a list of all the legal actions for a given hand."""
+
+  available_actions = ['H', 'S', 'DD', 'SP']
+  if k != 'd':
+    if check_split(hands[k][i]) is False:
+      available_actions = ['H', 'S', 'DD']
+      # A player cannot DD or SP if they don't have enough chips to double their bet.
+      # If a player just SP, they don't have a starting hand yet so they can only H or S
+      if len(hands[k][i]) == 1 or player_chips[k] < 2*bets[k][i]:
+        available_actions = ['H', 'S']
+  return available_actions
+
+
+def get_action(hands: dict, k: str, i: int, available_actions: [str]) -> str:
+  """Return the action that the hand will complete."""
+
+  # Computers and dealers don't require user input
+  if k == 'c1' or k == 'c2':
+    action = basic_strategy(hands[k][i], hands['d'][0][0], available_actions)
+  elif k == 'd':
+    action = dealer_action(hands[k][i])
+  else:
+    action = player_action(available_actions)
+  return action
+
+
+# Dealer
+
+def dealer_action(hand: [str]) -> str: 
+  """Return the dealer's action based on the value of their hand."""
+
+  # On the dealer's turn, make the card face-up
+  if hand[1] == '░░░░':
+    hand.pop(1)
+  value = evaluate_hand(hand)
+  soft = check_soft(hand)
+  # Dealer must hit on anything lower than 17 or soft 17
+  if value <= 16 or (value == 17 and soft is True):
+    return 'H'
+  else:
+    return 'S'
+
+
+def natural_dealer(hand: [str]) -> bool:
+  """Return True if the dealer has a natural 21."""
+
+  return evaluate_hand(hand) == 21
+
+
+# Computer
+
+def basic_strategy(hand: [str], up_card: str, available_actions) -> str:
+  """Return the computer's ideal action based on basic strategy."""
+
+  value = evaluate_hand(hand)
+  temp = []
+  temp.append(up_card)
+  dealer_value = evaluate_hand(temp)
+
+  if len(hand) == 1:
+    return 'H'
+
+  if 'DD' in available_actions:
+    dd = 'DD'
+    ds = 'DD'
+  # If the hand should DD but that is not an option e.g. they already hit once
+  else:
+    dd = 'H'
+    ds = 'S'
+
+  # SP only in available_options after checking that SP is possible
+  # Any splitting situation not listed here will defer to the hard hands circumstance
+  if 'SP' in available_actions:
+    if value == 18 and dealer_value not in [7, 10, 11]:
+      return 'SP'
+    elif value == 16:
+      return 'SP'
+    elif value == [14, 6, 4] and dealer_value < 8:
+      return 'SP'
+    elif value == 12 and dealer_value < 7:
+      return 'SP'
+    elif value == 8 and dealer_value in [5, 6]:
+      return 'SP'
+    elif value == 2:
+      return 'SP'
+
+  soft = check_soft(hand)
+  if soft is True:
+    if value == 20:
+      return 'S'
+    elif value == 19:
+      if dealer_value == 6:
+        return ds
+      else:
+        return 'S'
+    elif value == 18:
+      if dealer_value in [2, 3, 4, 5, 6]:
+        return ds
+      elif dealer_value in [7, 8]:
+        return 'S'
+      else:
+        return 'H'
+    elif value == 17:
+      if dealer_value in [3, 4, 5, 6]:
+        return dd
+      else:
+        return 'H'
+    elif value in [16, 15]:
+      if dealer_value in [4, 5, 6]:
+        return dd
+      else:
+        return 'H'
+    elif value in [14, 13]:
+      if dealer_value in [5, 6]:
+        return dd
+      else:
+        return 'H'
+
+  else:
+    if value >= 17:
+      return 'S'
+    elif value in [13, 14, 15, 16] and dealer_value in [2, 3, 4, 5, 6]:
+      return 'S'
+    elif value == 12 and dealer_value in [4, 5, 6]:
+      return 'S'
+    elif value == 11:
+      return dd
+    elif value == 10 and dealer_value not in [10, 11]:
+      return dd
+    elif value == 9 and dealer_value in [3, 4, 5, 6]:
+      return dd
+    else:
+      return 'H'
+
+
+def count_cards(deck: [str]) -> float:
+  """Return the value of the deck."""
+
+  total_count = 0
+  for i in range(len(deck)):
+    # High value cards remaining in the deck
+    if deck[i][0] in ['1', 'J', 'Q', 'K', 'A']:
+      total_count += 1
+    # Low value cards
+    elif deck[i][0] in ['2', '3', '4', '5', '6']:
+      total_count -= 1
+  # Standard 52 decks remaining
+  num_decks_remaining = len(deck)/(STANDARD_DECK*NUM_DECKS)
+  true_count = total_count / num_decks_remaining
+  return true_count
+
+
+def computer_bet(deck: [str], player_chips: dict, player: str) -> int:
+  """Return the computer's ideal bet based on the value of the deck."""
+  
+  # If the deck has a high value, the player has a better chance of getting a good hand, so they will bet higher
+  true_count = count_cards(deck)
+  bet = STANDARD_BET + true_count
+  if bet > player_chips[player]:
+    if true_count > 1.5*STANDARD_BET:
+      bet = player_chips[player]
+    else:
+      bet = player_chips[player] / 2
+  # Check it is within the betting restrictions
+  if bet < MIN_BET:
+    bet = MIN_BET
+  elif bet > MAX_BET:
+    bet = MAX_BET
+  return round(bet)
+
+
+# Bets
+
+def hand_bet(deck: [str], player_chips: dict) -> dict:
+  """Return a dictionary with all the bets of each betting player.
+  Check that the bet is within the max/min and the player has that quantity of 
+  chips in player_chips."""
+
+  bets = {'c1': [], 'c2': [], 'p':[]}
+  for k in bets.keys():
+    if k[0] == 'c':
+      x = computer_bet(deck, player_chips, k)
+    else:
+      valid = False
+      while valid is False:
+        try:
+          x = int(input("Enter bet: "))
+          if player_chips[k] >= x and MIN_BET <= x <= MAX_BET:
+            valid = True
+          # Reasons for invalid bets
+          else:
+            if player_chips[k] < x:
+              print("Bet must be within your total chip count.")
+            elif x < MIN_BET:
+              print("Bet must be greater than or equal to {}.".format(MIN_BET))
+            else:
+              print("Bet must be less than or equal to {}.".format(MAX_BET))
+        except:
+          print("Enter an integer.")
+    bets[k].append(x)
+  return bets
+
+
+def pay_round(hands: dict, player_chips: dict, bets: dict) -> dict:
+  """Update the number of chips in player_chips based on the outcome of the hand.
+  If a player has a natural 21 and the dealer doesn't, they are paid 1.5xbet
+  If a player beats the dealer without going over 21, they are paid their bet.
+  If the dealer has a higher hand or the player busts, they lose their bet.
+
+  Return a dictionary that shows how player_chips changed since the previous round.
+
+  When the player double downs, the value in bet is doubled when the action is completed
+  Check play_hands to see when bet is changed.
+  
+  hands = {c1: [10, J], c2: [8, A], [8, 4, 10], p: [7, 4, /, 10], [10, 7]}
+  player_chips = {c1: 100, c2: 100, p: 100}
+  bets = {c1: [5], c2: [5, 5], p: [10]} # bets[p] would have initially been 5, but it changed in the outcome of the game
+  >>> pay_round(hands, player_chips, bets)
+  player_chips = {c1: 105, c2: 100, p: 110}
+  {c1: ' + 5', c2: ' + 5 - 5', p: ' + 10'}"""
+
+  all_values = store_hand_values(hands)
+  chip_change = {'c1': '', 'c2': '', 'p': ''}
+  for k in player_chips.keys():
+    for i in range(len(all_values[k])): 
+
+      # 2c -- Natural 21
+      if all_values[k][i] == 21 and len(hands[k][i]) == 2 and (len(hands['d'][0]) != 2 or all_values['d'][0] != 21):
+        player_chips[k] += bets[k][i]
+        player_chips[k] += bets[k][i] / 2
+        chip_change[k] += "+ 1.5 x " + str(bets[k][i]) + " "
+        if player_chips[k] % 1 != 0:
+          player_chips[k] = int(player_chips[k] + 0.5)
+        else:
+          player_chips[k] = int(player_chips[k])
+
+      # 2a -- Player is higher than dealer without busting
+      elif all_values[k][i] <= 21 and all_values[k][i] > all_values['d'][0]:
+        player_chips[k] += bets[k][i]
+        chip_change[k] += "+ " + str(bets[k][i]) + " "
+
+      # 2b -- Dealer busts and player doesn't
+      elif all_values[k][i] <= 21 and all_values['d'][0] > 21:
+        player_chips[k] += bets[k][i]
+        chip_change[k] += "+ " + str(bets[k][i]) + " "
+
+      # 3a -- Player busts
+      elif all_values[k][i] > 21:
+        player_chips[k] -= bets[k][i]
+        chip_change[k] += "- " + str(bets[k][i]) + " "
+
+      # 3b -- Dealer has a higher hand without busting
+      elif all_values[k][i] < all_values['d'][0] and all_values['d'][0] <= 21:
+        player_chips[k] -= bets[k][i]
+        chip_change[k] += "- " + str(bets[k][i]) + " "
+
+      # Dealer and player tie, no chnage 
+      elif all_values[k][i] ==  all_values['d'][0]:
+        chip_change[k] += "--- "
+
+  return chip_change
+
+
+# Display
+
+def display_hands(hands: dict):
+  """Print the hands nicely. If it is not yet the dealer's turn, only show their
+  first card and their face down card."""
+
+  for k in hands.keys():
+    for i in range(len(hands[k])):
+      if k == 'd' and hands[k][i][1] == '░░░░':
+        # Dealer should only show 1 card
+        # The additional card dealt is to act as a placeholder in case they got blackjack
+        if hands[k][i][0][0] != '1' and hands[k][i][0][-1] == 'm':
+          print('|{:<4} |'.format(hands[k][i][0]), end=" ")
+        else:
+          print('|{:<4}|'.format(hands[k][i][0]), end=" ")
+        print('|░░░░|', end=" ")
+      else:
+        for card in hands[k][i]:
+          if card == '/':
+            print('/', end=" ")
+          else:
+            # Format it such that it is always 4 spaces
+            # If the last character is m, that means the suit is \33[91m♥\033[30m or \33[91m♦\033[30m, so a space must be added because formatting is weird with colour
+            if card[0] != '1' and card[-1] == 'm':
+              print('|{:<4} |'.format(card), end=" ")
+            else:
+              print('|{:<4}|'.format(card), end=" ")
+      # Separate hands of the same player
+      print("", end="   ")
+    # Separate player's hands
+    print("", end="  ")
+  print()
+
+
+def display_chips(player_chips: dict):
+  """Print chips nicely."""
+
+  for k in player_chips.keys():
+    print("{}: {:<15}".format(k, player_chips[k]), end="")
+  print("\n")
+
+
+def display_first_hand(hands: dict):
+  """Print the first cards for each player one at a time."""
+
+  output.clear()
+  for k in hands.keys():
+    print("|{:<4}|       ".format(hands[k][0][0]), end="     ")
+    time.sleep(1)
+  output.clear()
+  
+  print("|{:<4}| |{:<4}|     |{:<4}|            |{:<4}|            |{:<4}|".format(hands['c1'][0][0], hands['c1'][0][1], hands['c2'][0][0], hands['p'][0][0], hands['d'][0][0]))
+  time.sleep(1)
+  output.clear()
+
+  print("|{:<4}| |{:<4}|     |{:<4}| |{:<4}|     |{:<4}|            |{:<4}|".format(hands['c1'][0][0], hands['c1'][0][1], hands['c2'][0][0], hands['c2'][0][1], hands['p'][0][0], hands['d'][0][0]))
+  time.sleep(1)
+  output.clear()
+
+  print("|{:<4}| |{:<4}|     |{:<4}| |{:<4}|     |{:<4}| |{:<4}|     |{:<4}|".format(hands['c1'][0][0], hands['c1'][0][1], hands['c2'][0][0], hands['c2'][0][1], hands['p'][0][0], hands['p'][0][1], hands['d'][0][0]))
+  time.sleep(1)
+  output.clear()
+
+  print("|{:<4}| |{:<4}|     |{:<4}| |{:<4}|     |{:<4}| |{:<4}|     |{:<4}| |░░░░|".format(hands['c1'][0][0], hands['c1'][0][1], hands['c2'][0][0], hands['c2'][0][1], hands['p'][0][0], hands['p'][0][1], hands['d'][0][0]))
+
+
+def align_spaces(hand: [str]) -> int:
+  """Count the width of all the cards in a player's hand."""
+  
+  width = 0
+  for card in hand:
+    if card == "/":
+      # In case they double down
+      width += 2
+    else:
+      # Width of each card
+      width += 7
+  # Space between hands
+  width += 3
+  return width
+
+
+def display_chips2(hands: dict, player_chips: dict):
+  """Print chips nicely and align with spacing of the player's cards."""
+
+  # Find width between each player's hand
+  for k in player_chips.keys():
+    width = 0
+    for i in range(len(hands[k])):
+      width += align_spaces(hands[k][i])
+    width += 2
+
+    # Some space is used for the print statement
+    # Additional space is added at the end
+    width = width - len(k) - 1 - 1 - len(str(player_chips[k]))
+    if width < 1:
+      width = 4
+    spaces = " "*width
+
+    print("{}: {}{}".format(k, player_chips[k], spaces), end="")
+  print("\n")
+
+
+def get_initial_bet(bets: dict) -> dict:
+  """Storing only the original bets--not how they have been changed in play."""
+  
+  return {'c1': bets['c1'][0], 'c2': bets['c2'][0], 'p': bets['p'][0]}
+
+
+# General 
+
+def play_round(deck: [str], player_chips: dict, round_number: int):
+  """Play a single round."""
+  
+  # Set up
+  display_chips(player_chips)
+  bets = hand_bet(deck, player_chips)
+  hands = deal(deck)
+  initial = get_initial_bet(bets)
+  display_chips2(hands, initial)
+  cont = input("\nEnter anything to continue: ")
+  display_first_hand(hands)
+
+  # End immediately if the dealer has a natural 21
+  if natural_dealer(hands['d'][0]) is False:
+    # Repeat for all players
+    for k in hands.keys():
+      # This is the maximum possible hands a player can have if they continuously split
+      for i in range(4*NUM_DECKS):
+        if i < len(hands[k]):
+
+          # Start a player's hand
+          available_actions = get_available_actions(hands, k, i, player_chips, bets)
+          value = evaluate_hand(hands[k][i])
+          action = ''
+
+          # If the player stands, double-downs, or gets 21+ their turn ends
+          while value < 21 and action != 'S' and action != 'DD':
+            if k == 'p':
+              print("\n{}: hand {}".format(k, i+1))
+
+            # Get which action the hand must execute depending on the player and options in their hand
+            action = get_action(hands, k, i, available_actions)
+
+            # Hit
+            if action == 'H':
+              hit(deck, hands[k][i])
+              if len(hands[k][i]) == 2:
+                # They can only DD if they have not yet received a card
+                available_actions = ['H', 'S', 'DD', 'SP']
+                # They can only split if they meet the splitting conditions
+                if check_split(hands[k][i]) is False:
+                  available_actions = ['H', 'S', 'DD']
+              # If the player just split, they only have 1 card and cannot SP or DD
+              else:
+                available_actions = ['H', 'S']
+
+            elif action == 'DD':
+              double_down(deck, hands[k][i])
+              bets[k][i]*=2
+
+            elif action == 'SP':
+              split(hands[k], i)
+              bets[k].append(bets[k][i])
+              available_actions = ['H', 'S']
+
+            # Check the value of the hand and continue the hand
+            value = evaluate_hand(hands[k][i])
+            time.sleep(1.5)
+            output.clear()
+            # Allow the player to always see what they initially bet
+            print("\nRound {}\n".format(round_number))
+            display_chips2(hands, initial)
+            display_hands(hands)
+          print()
+  else:
+    # Reveal dealer's natural 21
+    print('\n')
+    hands['d'][0].pop(1)
+    display_hands(hands)
+  
+  # Display hands and show how each player's chips were affected
+  output.clear()
+  print("Round {}\n".format(round_number))
+  display_hands(hands)
+  print()
+  all_values = store_hand_values(hands)
+  chip_change = pay_round(hands, player_chips, bets)
+  display_chips2(hands, chip_change)
+  display_chips2(hands, player_chips)
+
+
+def main():
+
+  # Set up the game
+  display_rules()
+  deck = generate_deck()
+  player_chips = generate_chips()
+  play = 'y'
+  round_number = 0
+
+  # Continue while the user still wants to play
+  while play == 'y':
+
+    # New round
+    round_number += 1
+    output.clear()
+
+    # Check if there needs to be a new deck
+    if len(deck) < 30:
+      print('reshuffling...')
+      time.sleep(2)
+      deck = generate_deck()
+
+    # Play a complete round
+    play_round(deck, player_chips, round_number)
+
+    # If a player is broke, the game ends
+    for k in player_chips.keys():
+      if player_chips[k] == 0:
+        play = ''
+
+    # Ask player if they still want to play
+    if play != '':
+      play = input("Enter 'y' to continue playing: ")
+
+  # Display final chip count
+  output.clear()
+  print("Game Over\n")
+  display_chips(player_chips)
+  
+  # Polite message for ending the game
+  avg_c_p_dif = (player_chips['c1']+player_chips['c2'])/2 - player_chips['p']
+  if avg_c_p_dif < 0:
+    print('By pure luck, the player was better than the computer.')
+  elif avg_c_p_dif > 0:
+    print('Humans will always be defeated by the computer.')
+  else:
+    print('Play again. I refuse to be at the same level as a mere human.')
+
+# Test cases
+
+# Continuous splitting
+def test_splitting():
+  deck = ['7', '10', '8', '4', '4', '9', '8', '10', 'J', '8', '3', 'Q', 'A', '4', '10', 'A', '3', '9']
+  player_chips = generate_chips()
+  round_number = 1
+  play_round(deck, player_chips, round_number)
+
+def test_computer_splitting():
+  deck = ['7', 'A', '8', '4', '4', 'A', 'A', '10', 'J', '8', '3', 'Q', 'A', '4', '10', 'A', '3', '9']
+  player_chips = generate_chips()
+  round_number = 1
+  play_round(deck, player_chips, round_number)
+
+# Natural 21 
+def test_dealer_21():
+  deck = ['7', '10', '8', 'A', '4', '9', '8', '10', 'J', '8', '3', 'Q', 'A', '4', '10', 'A', '3', '9']
+  player_chips = generate_chips()
+  round_number = 1
+  play_round(deck, player_chips, round_number)
+
+def test_player_21():
+  deck = ['7', '10', '8', '4', '4', 'A', '8', '10', 'J', '8', '3', 'Q', 'A', '4', '10', 'A', '3', '9']
+  player_chips = generate_chips()
+  round_number = 1
+  play_round(deck, player_chips, round_number)
+
+# Splitting into a natural 21
+def test_split_21():
+  deck = ['7', '10', 'A', '4', '4', 'A', 'A', '10', 'J', 'A', '10', 'Q', '8', '4', '10', 'A', '3', '9']
+  player_chips = generate_chips()
+  round_number = 1
+  play_round(deck, player_chips, round_number)
